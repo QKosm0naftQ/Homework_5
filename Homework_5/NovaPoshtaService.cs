@@ -125,7 +125,6 @@ namespace Homework_5
 
                 foreach (var city in listCities)
                 {
-                    //Console.WriteLine("Seed city {0}...", city.Description);
                     var modelRequest = new DepartmentPostModel
                     {
                         ApiKey = "0ee0afeefc706709e3e963263a8acc54",

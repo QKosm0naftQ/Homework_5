@@ -5,6 +5,7 @@ using Newtonsoft.Json;
 using Microsoft.EntityFrameworkCore;
 using Homework_5.Models;
 using Newtonsoft.Json.Serialization;
+using System.Diagnostics;
 namespace Homework_5
 {
     internal class Program
@@ -13,18 +14,21 @@ namespace Homework_5
         {
             Console.InputEncoding = Encoding.UTF8;
             Console.OutputEncoding = Encoding.UTF8;
-            ///
+            Stopwatch stopWatch = new Stopwatch();
+            stopWatch.Start();
+
             NovaPoshtaService NovaPoshtaService = new NovaPoshtaService();
             NovaPoshtaService.seedAreas();
             NovaPoshtaService.SeedCities();
             NovaPoshtaService.SeedDepartments();
-            //var list = NovaPoshtaService.GetListAreas();
-            //foreach (var area in list)
-            //{
-            //    Console.WriteLine(area.Description);
-            //}
 
-            //------------
+            stopWatch.Stop();
+            TimeSpan ts = stopWatch.Elapsed;
+            string elapsedTime = String.Format("{0:00}:{1:00}:{2:00}.{3:00}",
+                ts.Hours, ts.Minutes, ts.Seconds,
+                ts.Milliseconds / 10);
+
+            Console.WriteLine("RunTime " + elapsedTime);
 
 
 
