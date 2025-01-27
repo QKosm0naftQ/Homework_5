@@ -12,6 +12,8 @@ using Microsoft.EntityFrameworkCore;
 using Homework_5.Model.Areas;
 using Homework_5.Models.Department;
 using Homework_5.Models.City;
+using AutoMapper;
+using Homework_5.Mapping;
 
 namespace Homework_5
 {
@@ -20,6 +22,9 @@ namespace Homework_5
         private readonly HttpClient _httpClient;
         private readonly string _url;
         private readonly BombaDbContext _context;
+        private readonly int _procesLimit;
+        private readonly IMapper _mapper;
+
 
         public NovaPoshtaService()
         {
@@ -27,9 +32,17 @@ namespace Homework_5
             _url = "https://api.novaposhta.ua/v2.0/json/";
             _context = new BombaDbContext();
             _context.Database.Migrate();
+
+            var config = new MapperConfiguration(cfg =>
+            {
+                cfg.AddProfile<MappingProfile>();
+            });
+
+            _mapper = config.CreateMapper();
+            _procesLimit = Environment.ProcessorCount - 2;
         }
 
-        public void seedAreas()
+        public async Task seedAreas()
         {
             if (!_context.Areas.Any())
             {
@@ -55,113 +68,134 @@ namespace Homework_5
                     var result = JsonConvert.DeserializeObject<AreaResponse>(jsonResp);
                     if (result != null && result.Success && result.Data != null)
                     {
-                        foreach (var item in result.Data)
+                        using var semaphore = new SemaphoreSlim(_procesLimit);
+
+                        await Parallel.ForEachAsync(result.Data, async (item, x) =>
                         {
-                            var entity = new AreaEntity
+                            try
                             {
-                                Ref = item.Ref,
-                                AreasCenter = item.AreasCenter,
-                                Description = item.Description
-                            };
-                            _context.Areas.Add(entity);
-                            _context.SaveChanges();
-                        }
+                                var entity = _mapper.Map<AreaEntity>(item);
+                                using var localContext = new BombaDbContext();
+                                await localContext.Areas.AddAsync(entity);
+                                await localContext.SaveChangesAsync();
+                            }
+                            finally
+                            {
+                                semaphore.Release();
+                            }
+                        });
                     }
                 }
             }
         }
 
-        public void SeedCities()
+        public async Task SeedCities()
         {
-            if (!_context.Cities.Any())
+            if (!_context.Cities.Any()) 
             {
                 var listAreas = GetListAreas();
-                foreach (var area in listAreas)
+                using var semaphore = new SemaphoreSlim(_procesLimit);
+
+                await Parallel.ForEachAsync(listAreas, async (area, x) =>
                 {
-                    var modelRequest = new CityPostModel
+                    await semaphore.WaitAsync();
+                    try
                     {
-                        ApiKey = "0ee0afeefc706709e3e963263a8acc54",
-                        MethodProperties = new MethodCityProperties()
+                        var modelRequest = new CityPostModel
                         {
-                            AreaRef = area.Ref
-                        }
-                    };
-                    string json = JsonConvert.SerializeObject(modelRequest, new JsonSerializerSettings
-                    {
-                        Formatting = Formatting.Indented 
-                    });
-                    HttpContent context = new StringContent(json, Encoding.UTF8, "application/json");
-                    HttpResponseMessage response = _httpClient.PostAsync(_url, context).Result;
-                    if (response.IsSuccessStatusCode)
-                    {
-                        string jsonResp = response.Content.ReadAsStringAsync().Result; 
-                        var result = JsonConvert.DeserializeObject<CityResponse>(jsonResp);
-                        if (result != null && result.Data != null && result.Success)
-                        {
-                            foreach (var city in result.Data)
+                            ApiKey = "0ee0afeefc706709e3e963263a8acc54",
+                            MethodProperties = new MethodCityProperties()
                             {
-                                var cityEntity = new CityEntity
-                                {
-                                    Ref = city.Ref,
-                                    Description = city.Description,
-                                    TypeDescription = city.SettlementTypeDescription,
-                                    AreaRef = city.Area,
-                                    AreaId = area.Id,
-                                };
-                                _context.Cities.Add(cityEntity);
+                                AreaRef = area.Ref
                             }
-                            _context.SaveChanges();
+                        };
+
+                        string json = JsonConvert.SerializeObject(modelRequest, new JsonSerializerSettings
+                        {
+                            Formatting = Formatting.Indented
+                        });
+                        HttpContent context = new StringContent(json, Encoding.UTF8, "application/json");
+                        HttpResponseMessage response = _httpClient.PostAsync(_url, context).Result;
+                        if (response.IsSuccessStatusCode)
+                        {
+                            string jsonResp = response.Content.ReadAsStringAsync().Result;
+                            var result = JsonConvert.DeserializeObject<CityResponse>(jsonResp);
+                            if (result != null && result.Data != null && result.Success)
+                            {
+
+                                var cityEntities = result.Data.Select(city =>
+                                {
+                                    var entity = _mapper.Map<CityEntity>(city);
+                                    entity.AreaId = area.Id;
+                                    return entity;
+                                });
+
+                                using var localContext = new BombaDbContext();
+                                await localContext.Cities.AddRangeAsync(cityEntities);
+                                await localContext.SaveChangesAsync();
+                            }
                         }
                     }
-                }
+                    finally
+                    {
+                        semaphore.Release();
+                    }
+                });
+
             }
         }
 
-        public void SeedDepartments()
+        public async Task SeedDepartments()
         {
             if (!_context.Departments.Any()) 
             {
                 var listCities = _context.Cities.ToList();
-
-                foreach (var city in listCities)
+                using var semaphore = new SemaphoreSlim(_procesLimit);
+                await Parallel.ForEachAsync(listCities, async (city, _) =>
                 {
-                    var modelRequest = new DepartmentPostModel
+                    await semaphore.WaitAsync();
+                    try
                     {
-                        ApiKey = "0ee0afeefc706709e3e963263a8acc54",
-                        MethodProperties = new MethodDepatmentProperties()
+                        var modelRequest = new DepartmentPostModel
                         {
-                            CityRef = city.Ref
-                        }
-                    };
-                    string json = JsonConvert.SerializeObject(modelRequest, new JsonSerializerSettings
-                    {
-                        Formatting = Formatting.Indented 
-                    });
-                    HttpContent context = new StringContent(json, Encoding.UTF8, "application/json");
-                    HttpResponseMessage response = _httpClient.PostAsync(_url, context).Result;
-                    if (response.IsSuccessStatusCode)
-                    {
-                        string jsonResp = response.Content.ReadAsStringAsync().Result; 
-                        var result = JsonConvert.DeserializeObject<DepartmentResponse>(jsonResp);
-                        if (result != null && result.Data != null && result.Success)
-                        {
-                            foreach (var dep in result.Data)
+                            ApiKey = "0ee0afeefc706709e3e963263a8acc54",
+                            MethodProperties = new MethodDepatmentProperties()
                             {
-                                var departmentEntity = new DepartmentEntity
-                                {
-                                    Ref = dep.Ref,
-                                    Description = dep.Description,
-                                    Address = dep.ShortAddress,
-                                    Phone = dep.Phone,
-                                    CityRef = dep.CityRef,
-                                    CityId = city.Id
-                                };
-                                _context.Departments.Add(departmentEntity);
+                                CityRef = city.Ref
                             }
-                            _context.SaveChanges();
+                        };
+
+                        string json = JsonConvert.SerializeObject(modelRequest, new JsonSerializerSettings
+                        {
+                            Formatting = Formatting.Indented 
+                        });
+                        HttpContent context = new StringContent(json, Encoding.UTF8, "application/json");
+                        HttpResponseMessage response = _httpClient.PostAsync(_url, context).Result;
+                        if (response.IsSuccessStatusCode)
+                        {
+                            string jsonResp = response.Content.ReadAsStringAsync().Result; 
+                            var result = JsonConvert.DeserializeObject<DepartmentResponse>(jsonResp);
+                            if (result != null && result.Data != null && result.Success)
+                            {
+                                var departmentEntities = result.Data.Select(dep =>
+                                {
+                                    var entity = _mapper.Map<DepartmentEntity>(dep);
+                                    entity.CityId = city.Id;
+                                    return entity;
+                                });
+
+                                using var localContext = new BombaDbContext();
+                                await localContext.Departments.AddRangeAsync(departmentEntities);
+                                await localContext.SaveChangesAsync();
+                            }
                         }
                     }
-                }
+                    finally
+                    {
+                        semaphore.Release();
+                    }
+                });
+
             }
         }
 

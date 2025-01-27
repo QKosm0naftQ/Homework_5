@@ -10,7 +10,7 @@ namespace Homework_5
 {
     internal class Program
     {
-        static void Main(string[] args)
+        static async Task Main(string[] args)
         {
             Console.InputEncoding = Encoding.UTF8;
             Console.OutputEncoding = Encoding.UTF8;
@@ -18,9 +18,9 @@ namespace Homework_5
             stopWatch.Start();
 
             NovaPoshtaService NovaPoshtaService = new NovaPoshtaService();
-            NovaPoshtaService.seedAreas();
-            NovaPoshtaService.SeedCities();
-            NovaPoshtaService.SeedDepartments();
+            await NovaPoshtaService.seedAreas();
+            await NovaPoshtaService.SeedCities();
+            await NovaPoshtaService.SeedDepartments();
 
             stopWatch.Stop();
             TimeSpan ts = stopWatch.Elapsed;
